@@ -1,3 +1,4 @@
+
 library(shiny)
 
 library(shinydashboard)
@@ -13,9 +14,6 @@ file_name <- "https://api.coronavirus.data.gov.uk/v2/data?areaType=ltla&metric=c
 
 df <- fread(file_name)
 
-#read.csv(file_name,
-#               header = TRUE,
-#               fileEncoding = "UTF-16LE")
 
 df$date <- as.Date(as.character(df$date))
 
@@ -36,6 +34,42 @@ locations <- sort(unique(df$areaName))
 
 maxdate <- max(df$date)
 
+maxdate_death <- max(subset(df, is.na(newDeaths28DaysByDeathDateRollingRate) == F)$date)
+maxdate_cases <- max(subset(df, is.na(newCasesBySpecimenDateRollingRate) == F)$date)
+
+date_vax_df <- subset(df, date == maxdate)
+
+max_vax_loc <- date_vax_df[with(date_vax_df, 
+                                order(-cumVaccinationCompleteCoverageByVaccinationDatePercentage,
+                                      areaName))]$areaName[1:5]
+
+min_vax_loc <- date_vax_df[with(date_vax_df, 
+                                order(cumVaccinationCompleteCoverageByVaccinationDatePercentage,
+                                      areaName))]$areaName[1:5]
+
+date_death_df <- subset(df, date == maxdate_death)
+
+max_death_loc <- date_death_df[with(date_death_df, 
+                                    order(-newDeaths28DaysByDeathDateRollingRate,
+                                          areaName))]$areaName[1:5]
+
+min_death_loc <- date_death_df[with(date_death_df, 
+                                    order(newDeaths28DaysByDeathDateRollingRate,
+                                          areaName))]$areaName[1:5]
+
+date_cases_df <- subset(df, date == maxdate_cases)
+
+max_cases_loc <- date_cases_df[with(date_cases_df, 
+                                    order(-newCasesBySpecimenDateRollingRate,
+                                          areaName))]$areaName[1:5]
+
+min_cases_loc <- date_cases_df[with(date_cases_df, 
+                                    order(newCasesBySpecimenDateRollingRate,
+                                          areaName))]$areaName[1:5]
+
+rm(date_vax_df)
+rm(date_death_df)
+rm(date_cases_df)
 
 
 
@@ -71,12 +105,12 @@ ui <- dashboardPage(
       
       selectInput(
         "location1", label = "Local Authority 1:",
-        choices = c(locations), selected = minvac_locations[1]
+        choices = c(locations), selected = "Westminster"
       ),
       
       selectInput(
         "location2", label = "Local Authority 2:",
-        choices = c("---", locations), selected = maxvac_locations[1]
+        choices = c("---", locations), selected = "---"
       ),
       
       selectInput(
@@ -97,50 +131,73 @@ ui <- dashboardPage(
   
   dashboardBody(
     tabItems(
-      tabItem(tabName = "dashboard"#,
-              #h2("Lower Tier Local Authorities"),
-              #h3("(England)"),
-              #h6(br())
+      tabItem(tabName = "dashboard"
       )
     ),
     # Boxes need to be put in a row (or column)
     
     h2("Lower Tier Local Authorities (England)"),
     h6(br()),
-
     
     fluidRow(
-      shinydashboard::box(title =paste0("Daily Cases \n(Averaged over seven days)"),
-                          plotOutput("caseplot", height = 275),
-                          status = "danger"),
-      shinydashboard::box(title =paste0("Daily Deaths \n(Averaged over seven days)"),
-                          plotOutput("deathplot", height = 275),
-                          status = "danger")
+      tabBox(
+        width=12,
+        tabPanel(
+          tags$p("Daily Cases \n(Averaged over seven days)", style = "font-size: 200%"),
+          title="Cases",
+          plotOutput("caseplot"),
+          fluidRow(),
+          fluidRow(
+            valueBoxOutput("casebox_bad", width = 6),
+            valueBoxOutput("casebox_good", width = 6)
+          )
+        ),
+        tabPanel(
+          tags$p("Daily Deaths \n(Averaged over seven days)", style = "font-size: 200%"),
+          title="Deaths",
+          plotOutput("deathplot"),
+          fluidRow(),
+          fluidRow(
+            valueBoxOutput("deathbox_bad", width = 6),
+            valueBoxOutput("deathbox_good", width = 6)
+          )
+        ),
+        tabPanel(
+          tags$p("Percentage Fully Vaccinated", style = "font-size: 200%"),
+          title="Vaccinations",
+          plotOutput("vaccplot"),
+          fluidRow(),
+          fluidRow(
+            valueBoxOutput("vaccinationbox_bad", width = 6),
+            valueBoxOutput("vaccinationbox_good", width = 6)
+          )
+        )
+      )
     ),
+    
+    
+    
     # Boxes need to be put in a row (or column)
     fluidRow(
-      shinydashboard::box(title =paste0("Percentage Fully Vaccinated"),
-                          plotOutput("vaccplot", height = 275),
-                          status = "danger"),
-      
       shinydashboard::box(
         title = "Notes",
+        width=12,
         "This dashboard illustrates how daily case, death, and vaccination rates vary amongst different",
         "Lower Tier Local Authorities. Using the selection window on the lefthand side, up to four different",
         "local authorities can be selected and the range of dates altered.",
         br(),
         br(),
-        "This dashboard automatically downloads the most recently available Covid-19 data each time the",
-        "dashboard is launched.",
-        br(),
-        paste0("The most recent date for which data is available is ", maxdate),
+        "This dashboard automatically downloads the most recently available Covid-19 data each time",
+        "it is launched.",
         br(),
         br(),
-        paste0("As of ", maxdate, ":"),
+        "The most recent date for which data is available is as follows:",
         br(),
-        paste0("Vaccine uptake is greatest in: ", paste(as.character(maxvac_locations), collapse="; "), "  (", as.numeric(maxvac_value), "%)"),
+        paste0("Cases (", maxdate_cases, ");"),
         br(),
-        paste0("Vaccine uptake is lowest in: ", paste(as.character(minvac_locations), collapse="; "), "  (", as.numeric(minvac_value), "%)"),
+        paste0("Deaths (", maxdate_death, ");"),
+        br(),
+        paste0("Vaccinations (", maxdate, ")"),
         br(),
         br(),
         "Dashboard created by ",
@@ -180,8 +237,7 @@ server <- function(input, output) {
     start_date <- reactive(input$dates[1])
     end_date <- reactive(input$dates[2])
     
-    #print(location_1())
-    
+
     location_list <- c(location_1(), 
                        location_2(), 
                        location_3(),
@@ -210,9 +266,12 @@ server <- function(input, output) {
       scale_color_manual(values=c(pal_col[1:length(unique(dfplot$areaName))]),
                          name="Local Authority") +
       scale_linetype_manual(values=c(line_types[1:length(unique(dfplot$areaName))]),
-                         name="Local Authority") +
+                            name="Local Authority") +
       theme_classic() +
-      theme(legend.position = "bottom")
+      theme(legend.position = "bottom",
+            legend.key.width= unit(1, 'cm'),
+            legend.text = element_text(size=12),
+            legend.title = element_text(size=14))
     
     
   })
@@ -230,8 +289,7 @@ server <- function(input, output) {
     start_date <- reactive(input$dates[1])
     end_date <- reactive(input$dates[2])
     
-    #print(location_1())
-    
+
     location_list <- c(location_1(), 
                        location_2(), 
                        location_3(),
@@ -262,7 +320,10 @@ server <- function(input, output) {
       scale_linetype_manual(values=c(line_types[1:length(unique(dfplot$areaName))]),
                             name="Local Authority") +
       theme_classic() +
-      theme(legend.position = "bottom")
+      theme(legend.position = "bottom",
+            legend.key.width= unit(1, 'cm'),
+            legend.text = element_text(size=12),
+            legend.title = element_text(size=14))
     
   })
   
@@ -279,8 +340,7 @@ server <- function(input, output) {
     start_date <- reactive(input$dates[1])
     end_date <- reactive(input$dates[2])
     
-    #print(location_1())
-    
+
     location_list <- c(location_1(), 
                        location_2(), 
                        location_3(),
@@ -313,11 +373,77 @@ server <- function(input, output) {
       scale_linetype_manual(values=c(line_types[1:length(unique(dfplot$areaName))]),
                             name="Local Authority") +
       theme_classic() +
-      theme(legend.position = "bottom")
+      theme(legend.position = "bottom",
+            legend.key.width= unit(1, 'cm'),
+            legend.text = element_text(size=12),
+            legend.title = element_text(size=14))
     
     
   })
   
+  output$vaccinationbox_bad <- renderValueBox({
+    valueBox(value = tags$p(paste0("Lowest Vaccination Rates (", maxdate, ")"), style = "font-size: 50%"), 
+             paste0(min_vax_loc[1], "; ",  
+                    min_vax_loc[2], "; ", 
+                    min_vax_loc[3], "; ",
+                    min_vax_loc[4], "; ",
+                    min_vax_loc[5] 
+             ), 
+             icon = tags$i(class = " fas fa-exclamation-triangle", style="font-size: 50%"), color = "red")
+  })
+  output$vaccinationbox_good <- renderValueBox({
+    valueBox(value = tags$p(paste0("Highest Vaccination Rates (", maxdate, ")"), style = "font-size: 50%"), 
+             paste0(max_vax_loc[1], "; ",  
+                    max_vax_loc[2], "; ", 
+                    max_vax_loc[3], "; ",
+                    max_vax_loc[4], "; ",
+                    max_vax_loc[5] 
+             ),
+             color = "green")
+  })
+  
+  output$deathbox_bad <- renderValueBox({
+    valueBox(value = tags$p(paste0("Highest Death Rates (", maxdate_death, ")"), style = "font-size: 50%"),
+             paste0(max_death_loc[1], "; ",  
+                    max_death_loc[2], "; ", 
+                    max_death_loc[3], "; ",
+                    max_death_loc[4], "; ",
+                    max_death_loc[5] 
+             ),
+             icon = tags$i(class = " fas fa-exclamation-triangle", style="font-size: 50%"), color = "red")
+  })
+  output$deathbox_good <- renderValueBox({
+    valueBox(value = tags$p(paste0("Lowest Death Rates (", maxdate_death, ")"), style = "font-size: 50%"),
+             paste0(min_death_loc[1], "; ",  
+                    min_death_loc[2], "; ", 
+                    min_death_loc[3], "; ",
+                    min_death_loc[4], "; ",
+                    min_death_loc[5] 
+             ),
+             color = "green")
+  })
+  
+  output$casebox_bad <- renderValueBox({
+    valueBox(value = tags$p(paste0("Highest Case Rates (", maxdate_cases, ")"), style = "font-size: 50%"),
+             paste0(max_cases_loc[1], "; ",  
+                    max_cases_loc[2], "; ", 
+                    max_cases_loc[3], "; ",
+                    max_cases_loc[4], "; ",
+                    max_cases_loc[5] 
+             ),
+             icon = tags$i(class = " fas fa-exclamation-triangle", style="font-size: 50%"),
+             color = "red")
+  })
+  output$casebox_good <- renderValueBox({
+    valueBox(value = tags$p(paste0("Lowest Case Rates (", maxdate_cases, ")"), style = "font-size: 50%"),
+             paste0(min_cases_loc[1], "; ",  
+                    min_cases_loc[2], "; ", 
+                    min_cases_loc[3], "; ",
+                    min_cases_loc[4], "; ",
+                    min_cases_loc[5] 
+             ),
+             color = "green")
+  })
   
 }
 
